@@ -8,6 +8,9 @@
 struct fnWidgetGen {
 	GtkWidget *(*add_widget) (FlowNetwork *fn, gpointer data);
 	gpointer data;
+	GdkPixbuf *(*render_drag) (GtkWidget *widget,
+				   gint *width,
+				   gint *height);
 };
 
 GHashTable *fnWidgetGenTable = NULL;
@@ -24,8 +27,15 @@ static guint n_targets = G_N_ELEMENTS(target_list);
 void flowNetwork_drag_node_source(GtkWidget *srcNode,
 				  GtkWidget *(*add_widget) (FlowNetwork *fn,
 							    gpointer data),
-				  gpointer data, GtkGrid * nodeGrid);
-void flowNetwork_drag_node_implementaion(GtkWidget *n);
+				  gpointer data,
+				  GdkPixbuf *(*render_drag) (GtkWidget *widget,
+							     gint *width,
+							     gint *height),
+				  GtkGrid * nodeGrid);
+void flowNetwork_drag_node_implementaion(GtkWidget *n,
+					 GdkPixbuf *(*render_drag) (GtkWidget *widget,
+								    gint *width,
+								    gint *height));
 static void flowNetwork_drop_init(FlowNetwork *fn);
 static void node_drag_begin_handle(GtkWidget *widget,
 				   GdkDragContext * context, gpointer user_data);
@@ -109,9 +119,13 @@ void flowNetwork_account_scroller(FlowNetwork *fn, GtkScrolledWindow *gsw)
 
 /* Section for drag and drop */
 void flowNetwork_drag_node_source(GtkWidget *srcNode,
-			     GtkWidget *(*add_widget) (FlowNetwork *fn,
-							gpointer data),
-			     gpointer data, GtkGrid *nodeGrid)
+				  GtkWidget *(*add_widget) (FlowNetwork *fn,
+							    gpointer data),
+				  gpointer data,
+				  GdkPixbuf *(*render_drag) (GtkWidget *widget,
+							     gint *width,
+							     gint *height),
+				  GtkGrid *nodeGrid)
 {
 	struct fnWidgetGen *wg;
 
@@ -133,13 +147,17 @@ void flowNetwork_drag_node_source(GtkWidget *srcNode,
         wg = malloc(sizeof(struct fnWidgetGen));
 	wg->add_widget = add_widget;
 	wg->data = data;
+	wg->render_drag = render_drag;
 	g_hash_table_insert(fnWidgetGenTable, srcNode, wg);
 
 	if (nodeGrid != NULL)
 		gtk_container_add(GTK_CONTAINER(nodeGrid), srcNode);
 }
 
-void flowNetwork_drag_node_implementaion(GtkWidget *n)
+void flowNetwork_drag_node_implementaion(GtkWidget *n,
+					 GdkPixbuf *(*render_drag) (GtkWidget *widget,
+								    gint *width,
+								    gint *height))
 {
 	struct fnWidgetGen *wg;
 
@@ -157,6 +175,7 @@ void flowNetwork_drag_node_implementaion(GtkWidget *n)
 	wg = malloc(sizeof(struct fnWidgetGen));
 	wg->add_widget = return_widget;
 	wg->data = n;
+	wg->render_drag = render_drag;
 
 	if (fnWidgetGenTable == NULL)
 		fnWidgetGenTable = g_hash_table_new(NULL, NULL);
@@ -164,6 +183,44 @@ void flowNetwork_drag_node_implementaion(GtkWidget *n)
 	g_hash_table_insert(fnWidgetGenTable, n, wg);
 }
 
+GdkPixbuf *flowNetwork_default_drag_render(GtkWidget *widget, gint *width, gint *height)
+{
+	const gchar *name;
+	GdkWindow *window;
+	GdkPixbuf *pixbuf;
+	cairo_surface_t *surface_window;
+	cairo_surface_t *surface_alpha;
+	cairo_t *cr;
+
+	name = gtk_widget_get_name(widget);
+	g_print("%s: node_drag_begin_handle\n", name);
+
+	window = gtk_widget_get_window(widget);
+	pixbuf = gdk_pixbuf_get_from_window(window, 0, 0,
+					    *width,
+					    *height);
+        surface_window = gdk_cairo_surface_create_from_pixbuf(pixbuf, 0, NULL);
+        surface_alpha = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+						   *width,
+						   *height);
+	cr = cairo_create(surface_alpha);
+	cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+	cairo_rectangle(cr, 0, 0, 10,
+			10);
+	cairo_fill(cr);
+	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+	cairo_set_source_surface(cr, surface_window, 0, 0);
+	cairo_arc(cr, *width / 2, *height / 2, *height / 2, 0, 2 * G_PI);
+	cairo_fill(cr);
+	cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+	cairo_fill(cr);
+	pixbuf = gdk_pixbuf_get_from_surface(surface_alpha, 0, 0,
+					     *width,
+					     *height);
+	*width = *width / 2;
+	*height = *height /2;
+	return pixbuf;
+}
 static void flowNetwork_drop_init(FlowNetwork *fn)
 {
 	gtk_drag_dest_set(GTK_WIDGET(fn),	/* widget that will accept a drop */
@@ -182,84 +239,22 @@ node_drag_begin_handle(GtkWidget *widget,
 		       GdkDragContext *context,
 		       gpointer user_data)
 {
-	const gchar *name;
+	struct fnWidgetGen *node;
 	GtkRequisition *natural_size;
-	GdkWindow *window;
 	GdkPixbuf *pixbuf;
-	cairo_surface_t *surface_window;
-	cairo_surface_t *surface_alpha;
-	cairo_t *cr;
 	GtkWidget *parent;
+	gint width, height;
 
-	name = gtk_widget_get_name(widget);
-	g_print("%s: node_drag_begin_handle\n", name);
 	natural_size = gtk_requisition_new();
 	gtk_widget_get_preferred_size(widget, NULL, natural_size);
-	window = gtk_widget_get_window(widget);
-	/* gdk_window_set_opacity(window, 0.3); */
-	pixbuf = gdk_pixbuf_get_from_window(window, 0, 0,
-					    natural_size->width,
-					    natural_size->height);
 
-	/* pixbuf = gdk_pixbuf_new_from_data(gdk_pixbuf_get_pixels(pixbuf), */
-	/* 				  gdk_pixbuf_get_colorspace(pixbuf), */
-	/* 				  TRUE, */
-	/* 				  gdk_pixbuf_get_bits_per_sample(pixbuf), */
-	/* 				  gdk_pixbuf_get_width(pixbuf), */
-	/* 				  gdk_pixbuf_get_height(pixbuf), */
-	/* 				  gdk_pixbuf_get_rowstride(pixbuf), */
-	/* 				  NULL, NULL); */
-	/* GValue t = G_VALUE_INIT; */
-	/* g_value_init(&t, G_TYPE_BOOLEAN); */
-	/* g_value_set_boolean(&t, TRUE); */
-	/* g_object_set_property(G_OBJECT(pixbuf), */
-	/* 		      "has-alpha", */
-	/* 		      &t); */
-	/* gdk_pixbuf_add_alpha(pixbuf, FALSE, 0, 0, 0); */
-        surface_window = gdk_cairo_surface_create_from_pixbuf(pixbuf, 0, NULL);
-        surface_alpha = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
-						   natural_size->width,
-						   natural_size->height);
-	cr = cairo_create(surface_alpha);
-	cairo_set_source_surface(cr, surface_window, 0, 0);
-	/* cairo_rectangle(cr, */
-	/* 		0, */
-	/* 		0, */
-	/* 		natural_size->width, */
-	/* 		natural_size->height); */
-	cairo_arc(cr, natural_size->width/2, natural_size->height/2, 64, 0, 2 * G_PI);
-	cairo_fill(cr);
-	/* cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE); */
-	/* cairo_set_source_rgba(cr, 1.0, 0.0, 0.0, 0.5); */
-	/* /\* cairo_set_line_width(cr, 10); *\/ */
-	/* cairo_rectangle(cr, 12, 12, 50, */
-	/* 		80); */
-	//cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
-	/* cairo_rectangle(cr, 0, 0, 50, 50); */
-	//cairo_stroke(cr);
-	/* g_print("%f\n", cairo_get_tolerance (cr)); */
-	/* cairo_surface_write_to_png(surface, "test.png"); */
- 		/* gdk_window_create_similar_image_surface(window, */
-		/* 					CAIRO_FORMAT_ARGB32, */
-		/* 					natural_size->width, */
-		/* 					natural_size->height, */
-		/* 					0); */
-	/* cairo_t *cr = gdk_cairo_create(window); */
-	/* /\* gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0); *\/ */
-	/* cairo_set_source_rgb(cr, 0.42, 0.65, 0.80); */
-	/* cairo_set_line_width(cr, 6); */
-	/* cairo_rectangle(cr, 0, 0, natural_size->width, */
-	/* 		natural_size->height); */
-	/* cairo_stroke(cr); */
+	width = natural_size->width;
+	height = natural_size->height;
 
-	pixbuf = gdk_pixbuf_get_from_surface(surface_alpha, 0, 0,
-					     natural_size->width,
-					     natural_size->height);
-	/* pixbuf = gdk_pixbuf_new_from_file("../../cairo/clearexample.png", NULL); */
-	g_print("%i\n", gdk_pixbuf_get_has_alpha(pixbuf));
-	gtk_drag_set_icon_pixbuf(context, pixbuf, natural_size->width / 2,
-				 natural_size->height / 2);
-	/* gtk_drag_set_icon_surface(context, get_background(widget)); */
+	node = g_hash_table_lookup(fnWidgetGenTable, widget);
+	pixbuf = node->render_drag(widget, &width, &height);
+
+	gtk_drag_set_icon_pixbuf(context, pixbuf, width, height);
 	gtk_widget_hide(widget);
 	gtk_requisition_free(natural_size);
 	parent = gtk_widget_get_parent(widget);
@@ -349,8 +344,6 @@ static void network_data_received_handle(GtkWidget *widget,
 	gtk_widget_get_preferred_size(FLOWNETWORK(widget)->layout, NULL,
 				      natural_size);
 	gtk_requisition_free(natural_size);
-	/* gtk_widget_queue_draw_area(FLOWNETWORK(widget)->layout, */
-	/*                           0, 0, natural_size->width, natural_size->height); */
 	gtk_widget_show_all(widget);
 	gtk_drag_finish(context, TRUE, TRUE, time);
 }

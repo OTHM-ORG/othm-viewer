@@ -39,7 +39,7 @@ GtkWidget *add_node(FlowNetwork *fn, gpointer data)
   gtk_widget_set_name(eventbox, "test");
   g_signal_connect (G_OBJECT (eventbox), "button_press_event",
   		      G_CALLBACK (helloWorld), (gpointer) "cool button");
-  flowNetwork_drag_node_implementaion(GTK_WIDGET(eventbox));
+  flowNetwork_drag_node_implementaion(GTK_WIDGET(eventbox), flowNetwork_default_drag_render);
   return eventbox;
 }
 
@@ -57,12 +57,13 @@ main (int argc, char *argv[])
   gtk_init(&argc, &argv);
   window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
 
-  gtk_window_set_title (GTK_WINDOW (window), "Aspect Frame");
-
+  gtk_window_set_title (GTK_WINDOW (window), "Othm-viewer");
+  gtk_widget_set_name (GTK_WIDGET(window), "testWindow");
   g_signal_connect (window, "destroy",
                     G_CALLBACK (exit), NULL);
-
   gtk_container_set_border_width (GTK_CONTAINER (window), 10);
+  gtk_widget_set_size_request(window, 700, 1000);
+  gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
 
   fn = flowNetwork_new();
 
@@ -70,13 +71,13 @@ main (int argc, char *argv[])
   grid2 = gtk_grid_new();
 
   grid = gtk_grid_new();
-  gtk_widget_set_size_request(grid, 500, 500);
+  gtk_widget_set_size_request(grid, 500, 100);
   button = gtk_button_new_with_label("hi!");
   gtk_widget_set_name (GTK_WIDGET(button), "testButton");
   gtk_container_add(GTK_CONTAINER(grid), button);
 
 
-  flowNetwork_drag_node_source(button, add_node, NULL, NULL);
+  flowNetwork_drag_node_source(button, add_node, NULL, flowNetwork_default_drag_render, NULL);
 
 
   frame = gtk_frame_new (NULL);

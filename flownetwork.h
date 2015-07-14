@@ -33,8 +33,16 @@ GtkWidget *flowNetwork_new(void);
 void flowNetwork_drag_node_source(GtkWidget *srcNode,
 				  GtkWidget *(*add_widget) (FlowNetwork *fn,
 							     gpointer data),
-				  gpointer data, GtkGrid *nodeGrid);
-void flowNetwork_drag_node_implementaion(GtkWidget *n);
+				  gpointer data,
+				  GdkPixbuf *(*render_drag) (GtkWidget *widget,
+							     gint *width,
+							     gint *height),
+				  GtkGrid *nodeGrid);
+GdkPixbuf *flowNetwork_default_drag_render(GtkWidget *widget, gint *width, gint *height);
+void flowNetwork_drag_node_implementaion(GtkWidget *n,
+					 GdkPixbuf *(*render_drag) (GtkWidget *widget,
+								    gint *width,
+								    gint *height));
 void flowNetwork_account_scroller(FlowNetwork *fn, GtkScrolledWindow *gsw);
 
 G_END_DECLS
